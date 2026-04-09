@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ICE QAB Portal PCW Test Harness</title>
+    <style>
+        body, input, button, select {
+            font-family: "Roboto", "Arial", sans-serif;
+            font-size: 1.5em;
+        }
+
+        input, select, option {
+            width: 100%;
+        }
+
+        body {
+            margin: 64px;
+        }
+
+        button {
+            padding: 16px;
+        }
+
+        .info-box {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            padding: 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+            color: #0c5460;
+        }
+
+        .mode-selector {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .mode-selector label {
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+        .mode-selector input[type="radio"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .mode-description {
+            font-size: 0.75em;
+            color: #6c757d;
+            margin-left: auto;
+        }
+    </style>
+</head>
+<body>
+<H1>ICE QAB Portal PCW Test Harness</H1>
+<br>
+
+<div class="info-box">
+    <strong>✅ Token Pre-filled!</strong> This harness was launched with an automatically fetched PCW token.
+</div>
+
+<form id="form" method="post">
+    <p>
+        <label>
+            PCW Token - required<br>
+            <input name="usr" id="usr" size="40" required="required" style="background-color: #e9ecef;">
+        </label>
+    </p>
+    <p>
+        <label>
+            Quote Reference - required<br>
+            <input name="quoteRef" id="quoteRef" size="40" required="required">
+        </label>
+    </p>
+</form>
+<br>
+<label>
+    Package Code - required<br>
+    <input id="packageCode" value="Tier1" size="40" required="required">
+</label>
+<br>
+<br>
+<div class="mode-selector">
+    <strong>Submission Mode</strong>
+    <label>
+        <input type="radio" name="submissionMode" value="query-params" checked> Query Parameters
+    </label>
+    <label>
+        <input type="radio" name="submissionMode" value="form-values"> Form Values
+    </label>
+    <span class="mode-description" id="modeDescription">
+        Covers will be appended to the URL as query parameters.
+    </span>
+</div>
+<label>
+    Optional Cover &amp; Addon selections - optional<br>
+    <input id="coverSelections" value="Legal=Legal&HomeEmergency=HomeEmergency" size="40">
+</label>
+<p>Please note that Cover &amp; Addon selections are PCW codes which are decoded by Portal to PAS cover codes</p>
+<br>
+<br>
+<p>
+    <label>
+        Recently Used Quote Portal URLs - select to populate Quote Portal URL<br>
+        <select id="recentlyUsed"></select>
+    </label>
+</p>
+<p>
+    <label>
+        ICE Quote Portal URL - required<br>
+        <input id="quotePortalDeepLinkURI" value="http://localhost:8080" size="40" required="required">
+    </label>
+</p>
+<br>
+<br>
+<br>
+<button id="pcwDeepLinkButton" onclick="postPCWLink()">Submit to QAB Portal</button>
+
+<script>
+    // This script will be injected by the launch script
+    // INJECT_TOKEN_HERE
+
+    // Check if injection happened
+    setTimeout(function() {
+        var token = window.localStorage.getItem('token');
+        var usrField = document.getElementById('usr').value;
+        
+        if (!token || token === '' || !usrField || usrField === '') {
+            console.error('Token injection failed!');
+            console.error('Token in localStorage:', token);
+            console.error('Token in field:', usrField);
+            
+            // Show error message to user
+            var infoBox = document.querySelector('.info-box');
+            if (infoBox) {
+                infoBox.style.backgroundColor = '#f8d7da';
+                infoBox.style.borderColor = '#f5c6cb';
+                infoBox.style.color = '#721c24';
+                infoBox.innerHTML = '<strong>⚠️ Token Not Loaded!</strong> Please run the launch script (launch-pcw-debug.bat or launch-pcw-harness.bat) to pre-fill the token.';
+            }
+        } else {
+            console.log('Token successfully loaded!');
+            console.log('Token length:', token.length);
+        }
+    }, 100);
+
+    // Load stored values
+    maybeSetValueFromLocalStorageFromKey("quotePortalDeepLinkURI");
+    maybeSetValueFromLocalStorageFromKey("packageCode");
+    maybeSetValueFromLocalStorageFromKey("coverSelections");
+    maybeSetValueFromLocalStorage("token", "usr");
+    maybeSetValueFromLocalStorageFromKey("quoteRef");
+
+    // Restore submission mode from localStorage
+    var storedMode = window.localStorage.getItem("submissionMode");
+    if (storedMode) {
+        var modeRadio = document.querySelector('input[name="submissionMode"][value="' + storedMode + '"]');
+        if (modeRadio) {
+            modeRadio.checked = true;
+            updateModeDescription(storedMode);
+        }
+    }
+
+    // Listen for mode changes
+    document.querySelectorAll('input[name="submissionMode"]').forEach(function(radio) {
+        radio.addEventListener("change", function() {
+            updateModeDescription(this.value);
+        });
+    });
+
+    function updateModeDescription(mode) {
+        var desc = document.getElementById("modeDescription");
+        if (mode === "query-params") {
+            desc.textContent = "Covers will be appended to the URL as query parameters.";
+        } else {
+            desc.textContent = "Covers will be submitted as hidden form fields in the POST body.";
+        }
+    }
+
+    createRecentlyUsedOptions("recentlyUsed");
+
+    function createRecentlyUsedOptions(recentlyUsed) {
+        var list = window.localStorage.getItem("recentlyUsedQuotePortals");
+        if (list == null) {
+            list = "";
+        }
+        list = list.split(";");
+        var select = document.getElementById(recentlyUsed);
+        var currentURI = window.localStorage.getItem("quotePortalDeepLinkURI");
+        list.forEach(function (url) {
+            if (url) {
+                select.options.add(new Option(url, url, false, url === currentURI));
+            }
+        });
+        select.options.add(new Option("New URL", "", false, false));
+        select.addEventListener("change", function (e) {
+            document.getElementById("quotePortalDeepLinkURI").value = document.getElementById(recentlyUsed).selectedOptions[0].value;
+        }, true);
+    }
+
+    function maybeSetValueFromLocalStorage(key, field) {
+        var value = window.localStorage.getItem(key);
+        if (value != null) {
+            document.getElementById(field).value = value;
+        }
+    }
+
+    function maybeSetValueFromLocalStorageFromKey(key) {
+        maybeSetValueFromLocalStorage(key, key);
+    }
+
+    function storeValue(key, field) {
+        var value = document.getElementById(field).value;
+        window.localStorage.setItem(key, value === undefined ? null : value);
+        return value;
+    }
+
+    function storeValueFromKey(key) {
+        return storeValue(key, key);
+    }
+
+    function updateRecentlyUsedQuotePortalURIs(quotePortalDeepLinkURI) {
+        var value = window.localStorage.getItem("recentlyUsedQuotePortals");
+        if (value == null && quotePortalDeepLinkURI.length > 0) {
+            window.localStorage.setItem("recentlyUsedQuotePortals", quotePortalDeepLinkURI);
+            return;
+        }
+        if (!value.includes(quotePortalDeepLinkURI) && quotePortalDeepLinkURI.length > 0) {
+            value = value + ";" + quotePortalDeepLinkURI;
+            window.localStorage.setItem("recentlyUsedQuotePortals", value);
+        }
+    }
+
+    function getSelectedMode() {
+        return document.querySelector('input[name="submissionMode"]:checked').value;
+    }
+
+    function removeExistingCoverFields() {
+        var form = document.getElementById("form");
+        var existingFields = form.querySelectorAll('input[data-cover-field="true"]');
+        existingFields.forEach(function(field) {
+            form.removeChild(field);
+        });
+    }
+
+    function parseCoverSelections(coverSelections) {
+        var pairs = [];
+        if (!coverSelections || coverSelections.length === 0) {
+            return pairs;
+        }
+        coverSelections.split("&").forEach(function(pair) {
+            var parts = pair.split("=");
+            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+                pairs.push({ name: parts[0].trim(), value: parts[1].trim() });
+            }
+        });
+        return pairs;
+    }
+
+    function postPCWLink() {
+        var quotePortalDeepLinkURI = storeValueFromKey("quotePortalDeepLinkURI");
+        if (quotePortalDeepLinkURI !== undefined && quotePortalDeepLinkURI.endsWith("/")) {
+            // remove trailing slash
+            quotePortalDeepLinkURI = quotePortalDeepLinkURI.substring(0, quotePortalDeepLinkURI.length - 1);
+            window.localStorage.setItem("quotePortalDeepLinkURI", quotePortalDeepLinkURI);
+        }
+        updateRecentlyUsedQuotePortalURIs(quotePortalDeepLinkURI);
+        var packageCode = storeValueFromKey("packageCode");
+        var optionalCovers = storeValueFromKey("coverSelections");
+        storeValue("token", "usr");
+        storeValueFromKey("quoteRef");
+
+        var mode = getSelectedMode();
+        window.localStorage.setItem("submissionMode", mode);
+
+        var form = document.getElementById("form");
+        removeExistingCoverFields();
+
+        var url = quotePortalDeepLinkURI + "/external/papi/pcwDeepLink?packageName=" + encodeURIComponent(packageCode);
+
+        if (mode === "query-params") {
+            // Original behaviour: append optional covers as query parameters
+            if (optionalCovers.length > 0) {
+                url = url + "&" + optionalCovers;
+            }
+        } else {
+            // New behaviour: add optional covers as hidden form fields
+            var coverPairs = parseCoverSelections(optionalCovers);
+            coverPairs.forEach(function(pair) {
+                var hidden = document.createElement("input");
+                hidden.type = "hidden";
+                hidden.name = pair.name;
+                hidden.value = pair.value;
+                hidden.setAttribute("data-cover-field", "true");
+                form.appendChild(hidden);
+            });
+        }
+
+        form.action = url;
+        document.getElementById("pcwDeepLinkButton").setAttribute("disabled", "disabled");
+
+        // Note: The form will automatically URL encode the usr and quoteRef fields when submitted
+        form.submit();
+    }
+</script>
+</body>
+</html>
